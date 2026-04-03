@@ -2494,10 +2494,32 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 	}
 
 
+	// 先解析 Weave 代码，确定实际图表名和内容类型
+	FWeaveAST PreParseAST;
+	FString PreParseError;
+	FWeaveInterpreter::Parse(WeaveCode, PreParseAST, PreParseError);
+
+	// 判断 Weave 代码中是否包含事件节点（事件必须放在 EventGraph，不能放在函数图表）
+	bool bContainsEventNodes = false;
+	for (const FWeaveNodeDecl& NodeDecl : PreParseAST.Nodes)
+	{
+		if (NodeDecl.SchemaId.StartsWith(TEXT("event.")) ||
+			NodeDecl.SchemaId.StartsWith(TEXT("customEvent.")) ||
+			NodeDecl.SchemaId.StartsWith(TEXT("componentEvent.")))
+		{
+			bContainsEventNodes = true;
+			break;
+		}
+	}
+
+	// 使用 AST 中解析出的图表名辅助判断（优先于外部传入的 GraphName）
+	FString EffectiveGraphName = PreParseAST.GraphName.IsEmpty() ? GraphName : PreParseAST.GraphName;
+	bool bIsEventGraphType = EffectiveGraphName.Contains(TEXT("EventGraph")) || bContainsEventNodes;
+
 	UEdGraph* TargetGraph = nullptr;
 	for (UEdGraph* Graph : BP->UbergraphPages)
 	{
-		if (Graph && Graph->GetName().Contains(GraphName))
+		if (Graph && (Graph->GetName().Contains(GraphName) || Graph->GetName().Contains(EffectiveGraphName)))
 		{
 			TargetGraph = Graph;
 			break;
@@ -2508,7 +2530,7 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 	{
 		for (UEdGraph* Graph : BP->FunctionGraphs)
 		{
-			if (Graph && Graph->GetName().Contains(GraphName))
+			if (Graph && (Graph->GetName().Contains(GraphName) || Graph->GetName().Contains(EffectiveGraphName)))
 			{
 				TargetGraph = Graph;
 				break;
@@ -2516,21 +2538,21 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 		}
 	}
 
-	// 如果找不到目标图表，尝试自动创建同名函数图表
-	if (!TargetGraph && !GraphName.Contains(TEXT("EventGraph")))
+	// 如果找不到目标图表，且内容不是事件类型，才创建函数图表
+	if (!TargetGraph && !bIsEventGraphType)
 	{
 		UEdGraph* NewFuncGraph = FBlueprintEditorUtils::CreateNewGraph(
-			BP, FName(*GraphName), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
+			BP, FName(*EffectiveGraphName), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());
 		if (NewFuncGraph)
 		{
 			FBlueprintEditorUtils::AddFunctionGraph<UClass>(BP, NewFuncGraph, true, nullptr);
 			FKismetEditorUtilities::CompileBlueprint(BP);
 			TargetGraph = NewFuncGraph;
-			UE_LOG(LogTemp, Log, TEXT("[Weaver] Auto-created function graph: %s"), *GraphName);
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] Auto-created function graph: %s"), *EffectiveGraphName);
 		}
 	}
 
-	// 回退到默认 EventGraph
+	// 包含事件节点或 EventGraph 类型 → 回退到默认 EventGraph
 	if (!TargetGraph && BP->UbergraphPages.Num() > 0)
 	{
 		TargetGraph = BP->UbergraphPages[0];

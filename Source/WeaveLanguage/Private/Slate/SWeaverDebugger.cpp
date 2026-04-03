@@ -1,6 +1,12 @@
 #include "Slate/SWeaverDebugger.h"
 #include "Core/WeaveInterpreter.h"
 #include "Core/WeaveGenerator.h"
+#include "Core/WeaveValidator.h"
+#include "Core/WeaveSerializer.h"
+#include "Core/WeaveSettings.h"
+#include "Widgets/Layout/SExpandableArea.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboBox.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Input/SMultiLineEditableTextBox.h"
@@ -95,6 +101,142 @@ void SWeaverDebugger::Construct(const FArguments& InArgs)
 				]
 
 
+				// 设置面板（可折叠）
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(8, 2)
+				[
+					SNew(SExpandableArea)
+					.AreaTitle(FText::FromString(TEXT("设置")))
+					.InitiallyCollapsed(true)
+					.BodyContent()
+					[
+						SNew(SVerticalBox)
+						// 第一行：规则开关
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.Padding(4, 2)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 12, 0)
+							[
+								SNew(SCheckBox)
+								.IsChecked_Lambda([]() { return UWeaverSettings::Get()->bEnableInternalSchemaFix ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+								.OnCheckStateChanged_Lambda([](ECheckBoxState State) { UWeaverSettings::Get()->bEnableInternalSchemaFix = (State == ECheckBoxState::Checked); UWeaverSettings::Get()->SaveConfig(); })
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("Schema修正")))
+								]
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 12, 0)
+							[
+								SNew(SCheckBox)
+								.IsChecked_Lambda([]() { return UWeaverSettings::Get()->bEnableSelfLoopRemoval ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+								.OnCheckStateChanged_Lambda([](ECheckBoxState State) { UWeaverSettings::Get()->bEnableSelfLoopRemoval = (State == ECheckBoxState::Checked); UWeaverSettings::Get()->SaveConfig(); })
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("自连移除")))
+								]
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 12, 0)
+							[
+								SNew(SCheckBox)
+								.IsChecked_Lambda([]() { return UWeaverSettings::Get()->bEnablePureExecRemoval ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+								.OnCheckStateChanged_Lambda([](ECheckBoxState State) { UWeaverSettings::Get()->bEnablePureExecRemoval = (State == ECheckBoxState::Checked); UWeaverSettings::Get()->SaveConfig(); })
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("纯节点执行链")))
+								]
+							]
+						]
+						// 第二行：更多规则开关
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.Padding(4, 2)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 12, 0)
+							[
+								SNew(SCheckBox)
+								.IsChecked_Lambda([]() { return UWeaverSettings::Get()->bEnableVarSetPinFix ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+								.OnCheckStateChanged_Lambda([](ECheckBoxState State) { UWeaverSettings::Get()->bEnableVarSetPinFix = (State == ECheckBoxState::Checked); UWeaverSettings::Get()->SaveConfig(); })
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("VarSet引脚")))
+								]
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 12, 0)
+							[
+								SNew(SCheckBox)
+								.IsChecked_Lambda([]() { return UWeaverSettings::Get()->bEnableInterfaceEventSuggestion ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+								.OnCheckStateChanged_Lambda([](ECheckBoxState State) { UWeaverSettings::Get()->bEnableInterfaceEventSuggestion = (State == ECheckBoxState::Checked); UWeaverSettings::Get()->SaveConfig(); })
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("接口事件建议")))
+								]
+							]
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 12, 0)
+							[
+								SNew(SCheckBox)
+								.IsChecked_Lambda([]() { return UWeaverSettings::Get()->bEnableExecMultiTargetSequence ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+								.OnCheckStateChanged_Lambda([](ECheckBoxState State) { UWeaverSettings::Get()->bEnableExecMultiTargetSequence = (State == ECheckBoxState::Checked); UWeaverSettings::Get()->SaveConfig(); })
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("多目标Sequence")))
+								]
+							]
+						]
+						// 第三行：通用设置
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.Padding(4, 2)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 12, 0)
+							[
+								SNew(SCheckBox)
+								.IsChecked_Lambda([]() { return UWeaverSettings::Get()->bAutoRewriteCode ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+								.OnCheckStateChanged_Lambda([](ECheckBoxState State) { UWeaverSettings::Get()->bAutoRewriteCode = (State == ECheckBoxState::Checked); UWeaverSettings::Get()->SaveConfig(); })
+								[
+									SNew(STextBlock).Text(FText::FromString(TEXT("纠错后回写代码")))
+								]
+							]
+							+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0, 0, 4, 0)
+							[
+								SNew(STextBlock).Text(FText::FromString(TEXT("日志级别:")))
+							]
+							+ SHorizontalBox::Slot().AutoWidth()
+							[
+								SNew(SHorizontalBox)
+								+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
+								[
+									SNew(SCheckBox)
+									.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+									.IsChecked_Lambda([]() { return UWeaverSettings::Get()->LogLevel == EWeaveLogLevel::Silent ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+									.OnCheckStateChanged_Lambda([](ECheckBoxState) { UWeaverSettings::Get()->LogLevel = EWeaveLogLevel::Silent; UWeaverSettings::Get()->SaveConfig(); })
+									[
+										SNew(STextBlock).Text(FText::FromString(TEXT("静默")))
+									]
+								]
+								+ SHorizontalBox::Slot().AutoWidth().Padding(0, 0, 4, 0)
+								[
+									SNew(SCheckBox)
+									.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+									.IsChecked_Lambda([]() { return UWeaverSettings::Get()->LogLevel == EWeaveLogLevel::Warning ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+									.OnCheckStateChanged_Lambda([](ECheckBoxState) { UWeaverSettings::Get()->LogLevel = EWeaveLogLevel::Warning; UWeaverSettings::Get()->SaveConfig(); })
+									[
+										SNew(STextBlock).Text(FText::FromString(TEXT("警告")))
+									]
+								]
+								+ SHorizontalBox::Slot().AutoWidth()
+								[
+									SNew(SCheckBox)
+									.Style(FAppStyle::Get(), "ToggleButtonCheckbox")
+									.IsChecked_Lambda([]() { return UWeaverSettings::Get()->LogLevel == EWeaveLogLevel::Verbose ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+									.OnCheckStateChanged_Lambda([](ECheckBoxState) { UWeaverSettings::Get()->LogLevel = EWeaveLogLevel::Verbose; UWeaverSettings::Get()->SaveConfig(); })
+									[
+										SNew(STextBlock).Text(FText::FromString(TEXT("详细")))
+									]
+								]
+							]
+						]
+					]
+				]
+
 				+ SVerticalBox::Slot()
 				.FillHeight(0.4f)
 				.Padding(8, 0, 8, 8)
@@ -136,14 +278,84 @@ FReply SWeaverDebugger::OnApply()
 	FWeaveAST AST;
 	FString Error;
 
-	if (!FWeaveInterpreter::Parse(WeaveCode, AST, Error))
+	// 自动纠错预处理
+	TArray<FString> AutoFixes;
+	FString ProcessedCode = FWeaveInterpreter::AutoFixWeaveCode(WeaveCode, AutoFixes);
+
+	if (!FWeaveInterpreter::Parse(ProcessedCode, AST, Error))
 	{
 		ResultText->SetText(FText::FromString(FString::Printf(TEXT("Parse failed: %s"), *Error)));
 		return FReply::Handled();
 	}
 
+	// AST 层纠错（根据设置开关规则）
+	UWeaverSettings* Settings = UWeaverSettings::Get();
+	FWeaveValidator Validator;
+	Validator.SetRuleEnabled(TEXT("InternalSchemaFix"), Settings->bEnableInternalSchemaFix);
+	Validator.SetRuleEnabled(TEXT("SelfLoopRemoval"), Settings->bEnableSelfLoopRemoval);
+	Validator.SetRuleEnabled(TEXT("PureExecRemoval"), Settings->bEnablePureExecRemoval);
+	Validator.SetRuleEnabled(TEXT("VarSetPinFix"), Settings->bEnableVarSetPinFix);
+	Validator.SetRuleEnabled(TEXT("InterfaceEventSuggestion"), Settings->bEnableInterfaceEventSuggestion);
+	Validator.SetRuleEnabled(TEXT("ExecMultiTargetSequence"), Settings->bEnableExecMultiTargetSequence);
 
-	FString Result = FString::Printf(
+	TArray<FWeaveCorrection> Corrections;
+	bool bASTCorrected = Validator.Validate(AST, Corrections);
+
+	if (bASTCorrected && Settings->bAutoRewriteCode)
+	{
+		// 将纠正后的 AST 序列化回 Weave 代码并回写到编辑框
+		FString CorrectedCode = FWeaveSerializer::Serialize(AST);
+		CodeInputBox->SetText(FText::FromString(CorrectedCode));
+	}
+
+	// 显示纠错信息
+	FString Result;
+	if (AutoFixes.Num() > 0)
+	{
+		Result += FString::Printf(TEXT("文本层自动修正了 %d 处问题:\n"), AutoFixes.Num());
+		for (const FString& Fix : AutoFixes)
+		{
+			Result += TEXT("  ") + Fix + TEXT("\n");
+		}
+		Result += TEXT("\n");
+	}
+
+	int32 CorrectionCount = 0;
+	int32 SuggestionCount = 0;
+	for (const FWeaveCorrection& C : Corrections)
+	{
+		if (C.bIsSuggestion) SuggestionCount++;
+		else CorrectionCount++;
+	}
+
+	if (Corrections.Num() > 0)
+	{
+		if (CorrectionCount > 0)
+		{
+			Result += FString::Printf(TEXT("AST 纠正了 %d 处问题:\n"), CorrectionCount);
+		}
+		for (const FWeaveCorrection& C : Corrections)
+		{
+			if (!C.bIsSuggestion)
+			{
+				Result += FString::Printf(TEXT("  [%s] %s\n"), *C.RuleName, *C.Description);
+			}
+		}
+		if (SuggestionCount > 0)
+		{
+			Result += FString::Printf(TEXT("\n建议 (%d 条):\n"), SuggestionCount);
+			for (const FWeaveCorrection& C : Corrections)
+			{
+				if (C.bIsSuggestion)
+				{
+					Result += FString::Printf(TEXT("  [建议] %s\n"), *C.Description);
+				}
+			}
+		}
+		Result += TEXT("\n");
+	}
+
+	Result += FString::Printf(
 		TEXT("Parse successful!\n\nBlueprint: %s\nGraph: %s\nSections: %d\nNodes: %d\nSets: %d\nLinks: %d\n\n"),
 		*AST.BlueprintPath, *AST.GraphName, AST.Sections.Num(), AST.Nodes.Num(), AST.Sets.Num(), AST.Links.Num()
 	);
@@ -220,7 +432,20 @@ FReply SWeaverDebugger::OnApply()
 					}
 				}
 
-				if (!TargetGraph && !AST.GraphName.Contains(TEXT("EventGraph")))
+				// 检查 Weave 代码中是否包含事件节点（事件必须在 EventGraph 中）
+				bool bHasEventNodes = false;
+				for (const FWeaveNodeDecl& NodeDecl : AST.Nodes)
+				{
+					if (NodeDecl.SchemaId.StartsWith(TEXT("event.")) ||
+						NodeDecl.SchemaId.StartsWith(TEXT("customEvent.")) ||
+						NodeDecl.SchemaId.StartsWith(TEXT("componentEvent.")))
+					{
+						bHasEventNodes = true;
+						break;
+					}
+				}
+
+				if (!TargetGraph && !AST.GraphName.Contains(TEXT("EventGraph")) && !bHasEventNodes)
 				{
 					UEdGraph* NewFuncGraph = FBlueprintEditorUtils::CreateNewGraph(
 						BP, FName(*AST.GraphName), UEdGraph::StaticClass(), UEdGraphSchema_K2::StaticClass());

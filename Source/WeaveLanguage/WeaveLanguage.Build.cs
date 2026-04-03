@@ -29,7 +29,8 @@ public class WeaveLanguage : ModuleRules
 				"Json",
 				"JsonUtilities",
 				"ToolMenus",
-				"ApplicationCore"
+				"ApplicationCore",
+				"DeveloperSettings"
 			}
 		);
 	}
