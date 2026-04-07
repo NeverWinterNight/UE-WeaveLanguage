@@ -1,4 +1,4 @@
-🌐[English](README.en.md)\|[Japanese](README.ja.md)\|[korean](README.ko.md)\|**Chinese**
+🌐[English](README.en.md)\|[Japanese](README.ja.md)\|[korean](README.ko.md)\|[**Chinese**](README.md)
 
 ## Weave Language
 
@@ -7,7 +7,7 @@ A graph layout language optimized for AI, currently used in Blueprint AI.
 Blueprints have a lot of functionality, but escaping is`K2Node`text, right`LLM`It's quite a burden.  
 `Weave语言`It's people and`LLM`All can read and write blueprints.
 
-This plug-in aims to open up the interaction barriers between LLM and Blueprint, and create middleware for the interaction between AI and Blueprint. In the future, it will gradually support material charts, animation charts, Control Rig charts, etc. We hope that developers can work together to develop it.
+本插件旨在打通 LLM 与 蓝图之间的交互壁垒，制作 AI 与 蓝图 交互的中间件，未来将会逐步支持材质图表，动画图表，Control Rig 图表等，希望广大开发者可以一起共同开发。
 
 ### characteristic
 
@@ -117,7 +117,7 @@ Applies a Diff to the Weave code, returning the complete modified Weave.
 
 parameter:
 
--   OriginalWeave: Original Weave code
+-   OriginalWeave: 原始 Weave 代码
 -   DiffCode: AI generated Diff
 -   OutError: error message, empty when successful
 
@@ -301,7 +301,7 @@ parameter:
 -   VarName: variable name
 -   OutError: error message
 
-Return: true indicates success.
+返回：true 表示成功。
 
 * * *
 
