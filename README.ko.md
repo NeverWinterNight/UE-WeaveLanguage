@@ -1,4 +1,4 @@
-🌐[영어](README.en.md)\|[일본어](README.ja.md)\|[한국어](README.ko.md)\|**중국인**
+🌐[영어](README.en.md)\|[일본어](README.ja.md)\|[한국어](README.ko.md)\|[**중국인**](README.md)
 
 ## 직조 언어
 
@@ -105,7 +105,7 @@ FString GetBlueprintWeave(BlueprintPath, GraphName, EntryNode = TEXT(""))
 -   GraphName: TestFunction과 같은 함수 이름 또는 이벤트 이름
 -   EntryNode: 선택 사항, 항목 노드를 지정합니다.
 
-반환: Weave 코드 문자열.
+반환값: Weave 코드 문자열.
 
 * * *
 
@@ -117,7 +117,7 @@ Weave 코드에 Diff를 적용하여 수정된 Weave 전체를 반환합니다.
 
 매개변수:
 
--   OriginalWeave: 원본 Weave 코드
+-   OriginalWeave: 原始 Weave 代码
 -   DiffCode: AI가 생성한 Diff
 -   OutError: 오류 메시지, 성공하면 비어 있음
 
@@ -357,7 +357,7 @@ bool RemoveNode(Id)
 
 -   ID: 노드 ID
 
-반환: true는 성공을 나타냅니다.
+返回：true 表示成功。
 
 * * *
 
