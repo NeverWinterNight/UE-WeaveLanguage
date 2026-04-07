@@ -1,4 +1,4 @@
-🌐 [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | **中文**
+🌐 [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [**中文**](README.md)
 
 ## Weave Language
 一种为 AI 优化的图布局语言，目前用于蓝图AI。
