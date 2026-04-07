@@ -1,3 +1,5 @@
+🌐[English](README.en.md)\|[Japanese](README.ja.md)\|[korean](README.ko.md)\|**Chinese**
+
 ## Weave Language
 
 A graph layout language optimized for AI, currently used in Blueprint AI.
@@ -232,7 +234,7 @@ Search for functions available in the current context.
 parameter:
 
 -   BlueprintPath: blueprint path
--   Query: Function name keyword
+-   Query: function name keyword
 
 Returns: list of matching functions.
 
