@@ -35,6 +35,7 @@ struct FWeaveVarDecl
 	EPinContainerType ContainerType = EPinContainerType::None;
 	FString ValueType; // Map 的 Value 类型（Key 类型存在 VarType 中）
 	FString DefaultValue; // 变量默认值（可选）
+	TArray<FString> ArrayDefaultValues; // 数组字面量默认值，如 [1000.0, 3000.0]
 	FString Description; // 变量描述/tooltip（可选）
 	FString Category; // 变量分类（可选）
 	bool bInstanceEditable = false; // 实例可编辑（Instance Editable）

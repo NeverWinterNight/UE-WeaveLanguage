@@ -12,7 +12,8 @@ namespace
 				Ch == TEXT('(') || Ch == TEXT(')') ||
 				Ch == TEXT('.') || Ch == TEXT('=') ||
 				Ch == TEXT(':') || Ch == TEXT(',') ||
-				Ch == TEXT('@') || Ch == TEXT('#'))
+				Ch == TEXT('@') || Ch == TEXT('#') ||
+				Ch == TEXT('[') || Ch == TEXT(']'))
 			{
 				return true;
 			}
@@ -58,7 +59,17 @@ namespace
 		}
 		FString Result = FString::Printf(TEXT("var %s : %s"), *Ser_QuoteIfNeeded(Var.VarName), *TypeStr);
 
-		if (!Var.DefaultValue.IsEmpty())
+		if (Var.ArrayDefaultValues.Num() > 0)
+		{
+			Result += TEXT(" = [");
+			for (int32 i = 0; i < Var.ArrayDefaultValues.Num(); i++)
+			{
+				if (i > 0) Result += TEXT(", ");
+				Result += Var.ArrayDefaultValues[i];
+			}
+			Result += TEXT("]");
+		}
+		else if (!Var.DefaultValue.IsEmpty())
 		{
 			Result += FString::Printf(TEXT(" = %s"), *Ser_QuoteIfNeeded(Var.DefaultValue));
 		}

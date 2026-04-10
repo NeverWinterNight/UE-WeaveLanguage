@@ -30,6 +30,7 @@
 #include "K2Node_ComponentBoundEvent.h"
 #include "K2Node_BaseAsyncTask.h"
 #include "K2Node_Timeline.h"
+#include "K2Node_MakeArray.h"
 #include "Engine/TimelineTemplate.h"
 #include "Curves/CurveVector.h"
 #include "Curves/CurveLinearColor.h"
@@ -699,7 +700,7 @@ TArray<FString> FWeaveInterpreter::Tokenize(const FString& Code)
 			}
 		}
 		else if (Ch == TEXT(':') || Ch == TEXT('=') || Ch == TEXT('.') || Ch == TEXT('(') || Ch == TEXT(')') || Ch ==
-			TEXT(',') || Ch == TEXT('@'))
+			TEXT(',') || Ch == TEXT('@') || Ch == TEXT('[') || Ch == TEXT(']'))
 		{
 			if (!Current.IsEmpty())
 			{
@@ -1118,6 +1119,52 @@ bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FW
 		}
 		OutVar.ValueType = Tokens[Index++]; // Value 类型
 	}
+	else if (TypeToken == TEXT("class"))
+	{
+		// class:AActor 或 class:/Game/Path/BP.BP 格式
+		OutVar.ContainerType = EPinContainerType::None;
+		if (Index < Tokens.Num() && Tokens[Index] == TEXT(":"))
+		{
+			Index++; // 跳过 ":"
+			if (Index < Tokens.Num())
+			{
+				FString ClassType = Tokens[Index++];
+				// 如果类路径以 / 开头，继续收集后续 token
+				if (ClassType.StartsWith(TEXT("/")))
+				{
+					while (Index < Tokens.Num())
+					{
+						const FString& NextToken = Tokens[Index];
+						if (NextToken == TEXT("var") || NextToken == TEXT("graph")
+							|| NextToken == TEXT("node") || NextToken == TEXT("set")
+							|| NextToken == TEXT("link") || NextToken == TEXT("comment")
+							|| NextToken == TEXT("bubble")
+							|| NextToken == TEXT("editable") || NextToken == TEXT("readonly")
+							|| NextToken == TEXT("spawn") || NextToken == TEXT("category")
+							|| NextToken == TEXT("="))
+						{
+							break;
+						}
+						if (NextToken.StartsWith(TEXT("\"")))
+						{
+							break;
+						}
+						ClassType += NextToken;
+						Index++;
+					}
+				}
+				OutVar.VarType = TEXT("class:") + ClassType;
+			}
+			else
+			{
+				OutVar.VarType = TEXT("class");
+			}
+		}
+		else
+		{
+			OutVar.VarType = TEXT("class");
+		}
+	}
 	else
 	{
 		OutVar.ContainerType = EPinContainerType::None;
@@ -1130,10 +1177,13 @@ bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FW
 			while (Index < Tokens.Num())
 			{
 				const FString& NextToken = Tokens[Index];
-				// 停止收集：遇到关键字、= 号或引号字符串（描述）
+				// 停止收集：遇到关键字、= 号、属性关键字或引号字符串（描述）
 				if (NextToken == TEXT("var") || NextToken == TEXT("graph")
 					|| NextToken == TEXT("node") || NextToken == TEXT("set")
 					|| NextToken == TEXT("link") || NextToken == TEXT("comment")
+					|| NextToken == TEXT("bubble")
+					|| NextToken == TEXT("editable") || NextToken == TEXT("readonly")
+					|| NextToken == TEXT("spawn") || NextToken == TEXT("category")
 					|| NextToken == TEXT("="))
 				{
 					break;
@@ -1149,17 +1199,70 @@ bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FW
 		}
 	}
 
-	// 解析可选的默认值：= value
-	// 语法: var Name : Type = DefaultValue
-	// 语法: var Name : Type = DefaultValue "description"
-	// 语法: var Name : Type = "value with spaces"
+	// 解析可选的默认值：= value 或 = [elem1, elem2, ...]
 	if (Index < Tokens.Num() && Tokens[Index] == TEXT("="))
 	{
 		Index++; // 跳过 "="
 
 		if (Index < Tokens.Num())
 		{
-			if (Tokens[Index].StartsWith(TEXT("\"")))
+			if (Tokens[Index] == TEXT("["))
+			{
+				// 数组字面量: [elem1, elem2, ...]
+				Index++; // 跳过 "["
+				while (Index < Tokens.Num() && Tokens[Index] != TEXT("]"))
+				{
+					// 跳过逗号分隔符
+					if (Tokens[Index] == TEXT(","))
+					{
+						Index++;
+						continue;
+					}
+
+					// 收集单个元素（支持负号和小数点重组）
+					FString Element;
+
+					// 处理负号前缀
+					if (Tokens[Index] == TEXT("-") && Index + 1 < Tokens.Num())
+					{
+						Element = TEXT("-");
+						Index++;
+					}
+
+					// 引号包裹的元素（字符串数组）
+					if (Index < Tokens.Num() && Tokens[Index].StartsWith(TEXT("\"")))
+					{
+						FString Val = Tokens[Index++];
+						if (Val.StartsWith(TEXT("\"")) && Val.EndsWith(TEXT("\"")) && Val.Len() >= 2)
+						{
+							Val = Val.Mid(1, Val.Len() - 2);
+						}
+						Element += Val;
+					}
+					else if (Index < Tokens.Num())
+					{
+						// 数值元素：收集主体部分
+						Element += Tokens[Index++];
+
+						// 重组小数: "1000" + "." + "0" → "1000.0"
+						if (Index + 1 < Tokens.Num() && Tokens[Index] == TEXT(".") && Tokens[Index + 1] != TEXT("]") && Tokens[Index + 1] != TEXT(","))
+						{
+							Element += TEXT(".") + Tokens[Index + 1];
+							Index += 2;
+						}
+					}
+
+					if (!Element.IsEmpty())
+					{
+						OutVar.ArrayDefaultValues.Add(Element);
+					}
+				}
+				if (Index < Tokens.Num() && Tokens[Index] == TEXT("]"))
+				{
+					Index++; // 跳过 "]"
+				}
+			}
+			else if (Tokens[Index].StartsWith(TEXT("\"")))
 			{
 				// 引号包裹的默认值
 				FString Val = Tokens[Index++];
@@ -1187,7 +1290,6 @@ bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FW
 					{
 						break;
 					}
-					// 遇到引号字符串则可能是描述，停止默认值收集
 					if (Token.StartsWith(TEXT("\"")))
 					{
 						break;
@@ -1262,8 +1364,8 @@ bool FWeaveInterpreter::ParseVar(const TArray<FString>& Tokens, int32& Index, FW
 		Index++;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Weaver] ParseVar result: %s type=%s default='%s' editable=%d readonly=%d spawn=%d category='%s' desc='%s'"),
-		*OutVar.VarName, *OutVar.VarType, *OutVar.DefaultValue,
+	UE_LOG(LogTemp, Log, TEXT("[Weaver] ParseVar result: %s type=%s default='%s' arrayDefaults=%d editable=%d readonly=%d spawn=%d category='%s' desc='%s'"),
+		*OutVar.VarName, *OutVar.VarType, *OutVar.DefaultValue, OutVar.ArrayDefaultValues.Num(),
 		OutVar.bInstanceEditable, OutVar.bBlueprintReadOnly, OutVar.bExposeOnSpawn,
 		*OutVar.Category, *OutVar.Description.Left(30));
 
@@ -1527,6 +1629,59 @@ bool FWeaveInterpreter::ResolveWeaveType(const FString& TypeStr, FEdGraphPinType
 	return false;
 }
 
+// 在编译后将数组字面量默认值写入 CDO
+static void ApplyArrayDefaults(UBlueprint* Blueprint, const TArray<FWeaveVarDecl>& Vars)
+{
+	if (!Blueprint || !Blueprint->GeneratedClass)
+	{
+		return;
+	}
+
+	UObject* CDO = Blueprint->GeneratedClass->GetDefaultObject(true);
+	if (!CDO)
+	{
+		return;
+	}
+
+	for (const FWeaveVarDecl& VarDecl : Vars)
+	{
+		if (VarDecl.ArrayDefaultValues.Num() == 0)
+		{
+			continue;
+		}
+
+		FProperty* Prop = Blueprint->GeneratedClass->FindPropertyByName(FName(*VarDecl.VarName));
+		FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop);
+		if (!ArrayProp)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Weaver] ApplyArrayDefaults: FArrayProperty not found for '%s'"), *VarDecl.VarName);
+			continue;
+		}
+
+		// 构造 UE ImportText 格式: (Elem1,Elem2,Elem3)
+		FString ImportStr = TEXT("(");
+		for (int32 i = 0; i < VarDecl.ArrayDefaultValues.Num(); i++)
+		{
+			if (i > 0) ImportStr += TEXT(",");
+			ImportStr += VarDecl.ArrayDefaultValues[i];
+		}
+		ImportStr += TEXT(")");
+
+		void* ArrayPtr = ArrayProp->ContainerPtrToValuePtr<void>(CDO);
+		const TCHAR* ImportResult = ArrayProp->ImportText_Direct(*ImportStr, ArrayPtr, CDO, 0, nullptr);
+		if (ImportResult)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] ApplyArrayDefaults: %s = %s (%d elements)"),
+				*VarDecl.VarName, *ImportStr, VarDecl.ArrayDefaultValues.Num());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Weaver] ApplyArrayDefaults: ImportText failed for '%s' with '%s'"),
+				*VarDecl.VarName, *ImportStr);
+		}
+	}
+}
+
 int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph, FString& OutError)
 {
 	if (!Graph)
@@ -1585,7 +1740,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			{
 				FName VarName = FName(*VarDecl.VarName);
 
-				if (!VarDecl.DefaultValue.IsEmpty())
+				if (!VarDecl.DefaultValue.IsEmpty() && VarDecl.ArrayDefaultValues.Num() == 0)
 				{
 					int32 VarIndex = FBlueprintEditorUtils::FindNewVariableIndex(Blueprint, VarName);
 					if (VarIndex != INDEX_NONE)
@@ -1851,8 +2006,8 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				FName VarName = FName(*VarDecl.VarName);
 				FBlueprintEditorUtils::AddMemberVariable(Blueprint, VarName, PinType);
 
-				// 设置变量默认值
-				if (!VarDecl.DefaultValue.IsEmpty())
+				// 设置变量默认值（标量，数组默认值在编译后通过 CDO 设置）
+				if (!VarDecl.DefaultValue.IsEmpty() && VarDecl.ArrayDefaultValues.Num() == 0)
 				{
 					int32 VarIndex = FBlueprintEditorUtils::FindNewVariableIndex(Blueprint, VarName);
 					if (VarIndex != INDEX_NONE)
@@ -1907,6 +2062,9 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 		// 编译蓝图骨架，确保新变量的 FProperty 可用于后续节点的 AllocateDefaultPins
 		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+
+		// 编译后将数组字面量默认值写入 CDO（CDO 只在编译后才存在）
+		ApplyArrayDefaults(Blueprint, AST.Vars);
 	}
 
 
@@ -2305,54 +2463,82 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					else
 					{
 						// ClassName 不是当前蓝图类名
-						// 先检查该变量是否在 AST.Vars 中声明（即由 Weave 代码创建的 Self 变量）
-						// 这处理了跨蓝图粘贴时源蓝图类名与目标蓝图类名不同的情况
-						bool bDeclaredInAST = false;
-						for (const FWeaveVarDecl& VarDecl : AST.Vars)
+						// 优先尝试解析为外部类 — 因为 schema 中明确指定了不同的类名，
+						// 说明用户意图访问外部蓝图的变量，即使本蓝图也有同名变量
+						ExternalClass = FindClassByShortName(ClassName);
+						if (ExternalClass)
 						{
-							if (VarDecl.VarName == FunctionName)
+							// 验证外部类确实有该属性
+							FProperty* ExternalProp = ExternalClass->FindPropertyByName(FName(*FunctionName));
+							if (ExternalProp)
 							{
-								bDeclaredInAST = true;
-								break;
+								bIsExternalVar = true;
+								UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' resolved as external on class '%s'"), *FunctionName, *ClassName);
+							}
+							else
+							{
+								// 外部类存在但没有该属性 — 可能外部BP未编译，尝试编译后再查找
+								if (UBlueprint* ExternalBP = Cast<UBlueprint>(ExternalClass->ClassGeneratedBy))
+								{
+									FKismetEditorUtilities::CompileBlueprint(ExternalBP);
+									if (ExternalBP->GeneratedClass)
+									{
+										ExternalClass = ExternalBP->GeneratedClass;
+										ExternalProp = ExternalClass->FindPropertyByName(FName(*FunctionName));
+									}
+								}
+								if (ExternalProp)
+								{
+									bIsExternalVar = true;
+									UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' resolved as external on class '%s' (after recompile)"), *FunctionName, *ClassName);
+								}
+								else
+								{
+									UE_LOG(LogTemp, Warning, TEXT("[Weaver] External class '%s' found but property '%s' missing, falling back to self check"), *ClassName, *FunctionName);
+									ExternalClass = nullptr;
+								}
 							}
 						}
 
-						if (bDeclaredInAST)
+						// 外部类解析失败时，回退到 AST.Vars / NewVariables 检查
+						// （处理跨蓝图粘贴时源蓝图类名与目标蓝图类名不同的情况）
+						if (!bIsExternalVar)
 						{
-							// 变量在 Weave 代码中声明，已由 AddMemberVariable 创建，视为 Self 变量
-							bIsSelfVar = true;
-							UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' declared in AST, treating as self var (source class: %s)"), *FunctionName, *ClassName);
-						}
-						else
-						{
-							// 再检查 Blueprint->NewVariables（可能目标蓝图已有同名变量）
-							bool bFoundInNewVars = false;
-							for (const FBPVariableDescription& ExistingVar : Blueprint->NewVariables)
+							bool bDeclaredInAST = false;
+							for (const FWeaveVarDecl& VarDecl : AST.Vars)
 							{
-								if (ExistingVar.VarName.ToString() == FunctionName)
+								if (VarDecl.VarName == FunctionName)
 								{
-									bFoundInNewVars = true;
+									bDeclaredInAST = true;
 									break;
 								}
 							}
 
-							if (bFoundInNewVars)
+							if (bDeclaredInAST)
 							{
 								bIsSelfVar = true;
-								UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' found in Blueprint->NewVariables, treating as self var"), *FunctionName);
+								UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' declared in AST, treating as self var (source class: %s, external class not found/no property)"), *FunctionName, *ClassName);
 							}
 							else
 							{
-								// 尝试作为外部类成员变量
-								ExternalClass = FindClassByShortName(ClassName);
-								if (ExternalClass)
+								bool bFoundInNewVars = false;
+								for (const FBPVariableDescription& ExistingVar : Blueprint->NewVariables)
 								{
-									bIsExternalVar = true;
+									if (ExistingVar.VarName.ToString() == FunctionName)
+									{
+										bFoundInNewVars = true;
+										break;
+									}
+								}
+
+								if (bFoundInNewVars)
+								{
+									bIsSelfVar = true;
+									UE_LOG(LogTemp, Log, TEXT("[Weaver] Variable '%s' found in Blueprint->NewVariables, treating as self var"), *FunctionName);
 								}
 								else
 								{
 									UE_LOG(LogTemp, Warning, TEXT("[Weaver] External class not found: %s, trying as self var"), *ClassName);
-									// 最后回退：检查 GeneratedClass 的 FProperty
 									if (Blueprint->GeneratedClass)
 									{
 										FProperty* Prop = Blueprint->GeneratedClass->FindPropertyByName(FName(*FunctionName));
@@ -2440,6 +2626,7 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 	// 修补 VariableGet/VariableSet 的引脚类型：
 	// AllocateDefaultPins 可能在蓝图未编译时找不到 FProperty，导致引脚类型缺失容器信息。
 	// 直接从 Blueprint->NewVariables 读取完整 PinType 覆盖到引脚上。
+	// 同时处理跨蓝图（External）变量节点：从外部类的 FProperty 解析正确的引脚类型。
 	if (Blueprint)
 	{
 		for (auto& KV : CreatedNodes)
@@ -2449,6 +2636,9 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			if (!VarGet && !VarSet) continue;
 
 			FName VarName = VarGet ? VarGet->GetVarName() : VarSet->GetVarName();
+			bool bPatched = false;
+
+			// 1. 自身变量：从 Blueprint->NewVariables 修补
 			for (const FBPVariableDescription& Desc : Blueprint->NewVariables)
 			{
 				if (Desc.VarName == VarName && Desc.VarType.ContainerType != EPinContainerType::None)
@@ -2460,8 +2650,44 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 						ValuePin->PinType = Desc.VarType;
 						UE_LOG(LogTemp, Log, TEXT("[Weaver] Patched pin type for variable '%s' (container=%d)"),
 							*VarName.ToString(), (int32)Desc.VarType.ContainerType);
+						bPatched = true;
 					}
 					break;
+				}
+			}
+
+			// 2. 外部变量：从外部类的 FProperty 解析引脚类型
+			if (!bPatched)
+			{
+				FMemberReference& VarRef = VarGet ? VarGet->VariableReference : VarSet->VariableReference;
+				if (!VarRef.IsSelfContext())
+				{
+					UClass* ExternalClass = VarRef.GetMemberParentClass();
+					if (ExternalClass)
+					{
+						FProperty* Prop = ExternalClass->FindPropertyByName(VarName);
+						if (Prop)
+						{
+							UEdGraphPin* ValuePin = KV.Value->FindPin(VarName, VarGet ? EGPD_Output : EGPD_Input);
+							if (ValuePin)
+							{
+								const UEdGraphSchema_K2* K2Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
+								if (K2Schema)
+								{
+									FEdGraphPinType ResolvedType;
+									K2Schema->ConvertPropertyToPinType(Prop, ResolvedType);
+									ValuePin->PinType = ResolvedType;
+									UE_LOG(LogTemp, Log, TEXT("[Weaver] Patched external pin type for '%s.%s' (container=%d)"),
+										*ExternalClass->GetName(), *VarName.ToString(), (int32)ResolvedType.ContainerType);
+								}
+							}
+						}
+						else
+						{
+							UE_LOG(LogTemp, Warning, TEXT("[Weaver] External variable '%s' not found on class '%s'"),
+								*VarName.ToString(), *ExternalClass->GetName());
+						}
+					}
 				}
 			}
 		}
@@ -2878,8 +3104,46 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					UEValue = FString::Printf(TEXT("(Pitch=%f,Yaw=%f,Roll=%f)"), P, Y, R);
 				}
 			}
-			Pin->DefaultValue = UEValue;
-			UE_LOG(LogTemp, Log, TEXT("[Weaver] Set: %s.%s = %s"), *Set.NodeId, *Set.PinName, *UEValue);
+			// 使用 Schema->TrySetDefaultValue 确保枚举等引脚值格式正确并通知节点
+			if (Schema)
+			{
+				bool bSetOK = Schema->TrySetDefaultValue(*Pin, UEValue);
+				if (!bSetOK)
+				{
+					// 枚举引脚可能需要完整限定名 (如 ESpawnActorCollisionHandlingMethod::AlwaysSpawn)
+					// 尝试从引脚类型的 SubCategoryObject 获取枚举前缀
+					if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Byte || Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Enum)
+					{
+						UEnum* PinEnum = Cast<UEnum>(Pin->PinType.PinSubCategoryObject.Get());
+						if (PinEnum)
+						{
+							FString QualifiedValue = FString::Printf(TEXT("%s::%s"), *PinEnum->GetName(), *UEValue);
+							bSetOK = Schema->TrySetDefaultValue(*Pin, QualifiedValue);
+							if (bSetOK)
+							{
+								UE_LOG(LogTemp, Log, TEXT("[Weaver] Set (qualified enum): %s.%s = %s"), *Set.NodeId, *Set.PinName, *QualifiedValue);
+							}
+						}
+					}
+					if (!bSetOK)
+					{
+						// 最终回退: 直接设置 DefaultValue
+						Pin->DefaultValue = UEValue;
+						Node->PinDefaultValueChanged(Pin);
+						UE_LOG(LogTemp, Warning, TEXT("[Weaver] TrySetDefaultValue failed, forced: %s.%s = %s (Pin category: %s)"),
+							*Set.NodeId, *Set.PinName, *UEValue, *Pin->PinType.PinCategory.ToString());
+					}
+				}
+				else
+				{
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Set: %s.%s = %s"), *Set.NodeId, *Set.PinName, *UEValue);
+				}
+			}
+			else
+			{
+				Pin->DefaultValue = UEValue;
+				UE_LOG(LogTemp, Log, TEXT("[Weaver] Set (no schema): %s.%s = %s"), *Set.NodeId, *Set.PinName, *UEValue);
+			}
 		}
 	}
 
@@ -3212,6 +3476,42 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 					Pin->PinType.bIsReference ? TEXT("true") : TEXT("false"));
 			};
 
+			// ======== 通配符预解析 ========
+			// 在尝试连接之前，将具体类型预设到通配符引脚上。
+			// 这使 TryCreateConnection 能成功（而非回退到 MakeLinkTo），
+			// 让 UE 的 Schema 正确追踪类型信息，在节点重建（手动编辑蓝图后）时类型不会丢失。
+			{
+				UEdGraphPin* WildcardPin = nullptr;
+				UEdGraphPin* ConcretePin = nullptr;
+				UK2Node* WildcardNode = nullptr;
+
+				if (FromPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard &&
+					ToPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Wildcard)
+				{
+					WildcardPin = FromPin;
+					ConcretePin = ToPin;
+					WildcardNode = FromNode;
+				}
+				else if (ToPin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard &&
+						 FromPin->PinType.PinCategory != UEdGraphSchema_K2::PC_Wildcard)
+				{
+					WildcardPin = ToPin;
+					ConcretePin = FromPin;
+					WildcardNode = ToNode;
+				}
+
+				if (WildcardPin && ConcretePin && WildcardNode)
+				{
+					WildcardPin->PinType = ConcretePin->PinType;
+					WildcardNode->PinConnectionListChanged(WildcardPin);
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Pre-resolved wildcard: %s.%s -> Cat=%s, SubObj=%s"),
+						*Link.FromNode, *WildcardPin->PinName.ToString(),
+						*ConcretePin->PinType.PinCategory.ToString(),
+						ConcretePin->PinType.PinSubCategoryObject.IsValid()
+							? *ConcretePin->PinType.PinSubCategoryObject->GetName() : TEXT("null"));
+				}
+			}
+
 			const FPinConnectionResponse ConnectResponse = Schema->CanCreateConnection(FromPin, ToPin);
 			if (ConnectResponse.Response == CONNECT_RESPONSE_DISALLOW)
 			{
@@ -3417,6 +3717,52 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		Node->PinDefaultValueChanged(Pin);
 		UE_LOG(LogTemp, Log, TEXT("[Weaver] Re-applied set after wildcard resolve: %s.%s = %s"),
 			*Set.NodeId, *Set.PinName, *Value);
+	}
+
+	// 自动为未连接的容器类型输入引脚创建 MakeArray 节点
+	// UE5 要求数组/集合/映射类型的输入引脚必须连接到节点输出，
+	// 不能使用字面值默认值（如 SphereOverlapActors 的 ObjectTypes 引脚）。
+	// 在所有 link 处理完成后，为仍未连接的容器引脚创建空 MakeArray。
+	{
+		int32 MakeArrayCount = 0;
+		for (auto& KV : CreatedNodes)
+		{
+			UK2Node* Node = KV.Value;
+			if (!Node) continue;
+
+			for (UEdGraphPin* Pin : Node->Pins)
+			{
+				if (!Pin) continue;
+				if (Pin->Direction != EGPD_Input) continue;
+				if (!Pin->PinType.IsContainer()) continue;
+				if (Pin->LinkedTo.Num() > 0) continue;
+				if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec) continue;
+
+				UK2Node_MakeArray* MakeArrayNode = NewObject<UK2Node_MakeArray>(Graph);
+				if (!MakeArrayNode) continue;
+
+				Graph->AddNode(MakeArrayNode, false, false);
+				MakeArrayNode->CreateNewGuid();
+				MakeArrayNode->NumInputs = 0;
+				MakeArrayNode->AllocateDefaultPins();
+				MakeArrayNode->NodePosX = Node->NodePosX - 250;
+				MakeArrayNode->NodePosY = Node->NodePosY + MakeArrayCount * 80;
+
+				UEdGraphPin* OutputPin = MakeArrayNode->GetOutputPin();
+				if (OutputPin)
+				{
+					OutputPin->PinType = Pin->PinType;
+					Pin->DefaultValue = TEXT("");
+					OutputPin->MakeLinkTo(Pin);
+					MakeArrayNode->PinConnectionListChanged(OutputPin);
+					Node->PinConnectionListChanged(Pin);
+
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] Auto-created MakeArray for container pin: %s.%s (type: %s)"),
+						*KV.Key, *Pin->PinName.ToString(), *Pin->PinType.PinCategory.ToString());
+					MakeArrayCount++;
+				}
+			}
+		}
 	}
 
 	for (auto& KV : CreatedNodes)
@@ -4113,6 +4459,10 @@ UK2Node* FWeaveInterpreter::CreateCallNode(UEdGraph* Graph, const FString& Class
 			{TEXT("FMin"), TEXT("Min")},
 			{TEXT("FMax"), TEXT("Max")},
 			{TEXT("FClamp"), TEXT("Clamp_Float")},
+			// Timer 函数重命名 (UE 5.5)
+			{TEXT("K2_SetTimerByFunctionName"), TEXT("K2_SetTimer")},
+			{TEXT("K2_ClearTimerByFunctionName"), TEXT("K2_ClearTimer")},
+			{TEXT("K2_PauseTimerByFunctionName"), TEXT("K2_PauseTimer")},
 		};
 		FString ResolvedFunctionName = FunctionName;
 		if (const FString* Translated = FuncNameTranslation.Find(FunctionName))
@@ -4724,9 +5074,49 @@ UK2Node* FWeaveInterpreter::CreateVariableGetNodeExternal(UEdGraph* Graph, UClas
 	if (VarGetNode)
 	{
 		FName VarFName = FName(*VarName);
+
+		// 确保外部类的属性可用：如果属性不存在，尝试编译外部蓝图
+		FProperty* Prop = OwnerClass->FindPropertyByName(VarFName);
+		if (!Prop)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Weaver] External property '%s' not found on '%s', attempting to compile external Blueprint..."),
+				*VarName, *OwnerClass->GetName());
+			if (UBlueprint* ExternalBP = Cast<UBlueprint>(OwnerClass->ClassGeneratedBy))
+			{
+				FKismetEditorUtilities::CompileBlueprint(ExternalBP);
+				if (ExternalBP->GeneratedClass)
+				{
+					OwnerClass = ExternalBP->GeneratedClass;
+					Prop = OwnerClass->FindPropertyByName(VarFName);
+					UE_LOG(LogTemp, Log, TEXT("[Weaver] After compile: property '%s' %s on '%s'"),
+						*VarName, Prop ? TEXT("FOUND") : TEXT("STILL MISSING"), *OwnerClass->GetName());
+				}
+			}
+		}
+
 		VarGetNode->VariableReference.SetExternalMember(VarFName, OwnerClass);
 		VarGetNode->AllocateDefaultPins();
-		UE_LOG(LogTemp, Log, TEXT("[Weaver] Created external VariableGet: %s.%s"), *OwnerClass->GetName(), *VarName);
+
+		// 验证引脚是否正确创建
+		UEdGraphPin* OutputPin = VarGetNode->FindPin(VarFName, EGPD_Output);
+		UEdGraphPin* SelfPin = VarGetNode->FindPin(UEdGraphSchema_K2::PN_Self, EGPD_Input);
+
+		if (!OutputPin || !SelfPin)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Weaver] External VariableGet '%s.%s': pins incomplete after AllocateDefaultPins (Output=%s, Self=%s), trying ReconstructNode..."),
+				*OwnerClass->GetName(), *VarName,
+				OutputPin ? TEXT("OK") : TEXT("MISSING"),
+				SelfPin ? TEXT("OK") : TEXT("MISSING"));
+			VarGetNode->ReconstructNode();
+			OutputPin = VarGetNode->FindPin(VarFName, EGPD_Output);
+			SelfPin = VarGetNode->FindPin(UEdGraphSchema_K2::PN_Self, EGPD_Input);
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[Weaver] Created external VariableGet: %s.%s (Output=%s, Self=%s, PinCount=%d)"),
+			*OwnerClass->GetName(), *VarName,
+			OutputPin ? TEXT("OK") : TEXT("MISSING"),
+			SelfPin ? TEXT("OK") : TEXT("MISSING"),
+			VarGetNode->Pins.Num());
 	}
 	return VarGetNode;
 }
@@ -4737,9 +5127,41 @@ UK2Node* FWeaveInterpreter::CreateVariableSetNodeExternal(UEdGraph* Graph, UClas
 	if (VarSetNode)
 	{
 		FName VarFName = FName(*VarName);
+
+		// 确保外部类的属性可用：如果属性不存在，尝试编译外部蓝图
+		FProperty* Prop = OwnerClass->FindPropertyByName(VarFName);
+		if (!Prop)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Weaver] External property '%s' not found on '%s', attempting to compile external Blueprint..."),
+				*VarName, *OwnerClass->GetName());
+			if (UBlueprint* ExternalBP = Cast<UBlueprint>(OwnerClass->ClassGeneratedBy))
+			{
+				FKismetEditorUtilities::CompileBlueprint(ExternalBP);
+				if (ExternalBP->GeneratedClass)
+				{
+					OwnerClass = ExternalBP->GeneratedClass;
+				}
+			}
+		}
+
 		VarSetNode->VariableReference.SetExternalMember(VarFName, OwnerClass);
 		VarSetNode->AllocateDefaultPins();
-		UE_LOG(LogTemp, Log, TEXT("[Weaver] Created external VariableSet: %s.%s"), *OwnerClass->GetName(), *VarName);
+
+		// 验证引脚是否正确创建
+		UEdGraphPin* InputPin = VarSetNode->FindPin(VarFName, EGPD_Input);
+		UEdGraphPin* SelfPin = VarSetNode->FindPin(UEdGraphSchema_K2::PN_Self, EGPD_Input);
+
+		if (!InputPin || !SelfPin)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Weaver] External VariableSet '%s.%s': pins incomplete (Input=%s, Self=%s), trying ReconstructNode..."),
+				*OwnerClass->GetName(), *VarName,
+				InputPin ? TEXT("OK") : TEXT("MISSING"),
+				SelfPin ? TEXT("OK") : TEXT("MISSING"));
+			VarSetNode->ReconstructNode();
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[Weaver] Created external VariableSet: %s.%s (PinCount=%d)"),
+			*OwnerClass->GetName(), *VarName, VarSetNode->Pins.Num());
 	}
 	return VarSetNode;
 }

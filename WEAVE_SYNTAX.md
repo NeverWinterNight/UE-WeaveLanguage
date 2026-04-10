@@ -1353,7 +1353,98 @@ set rightVec.Z = "0.0"    # 重复！后者覆盖前者
 set rightVec.Z = "0.0"
 ```
 
-### 错误 9：多图表时函数定义顺序
+### 错误 9：自创不存在的 Schema 类型
+
+**Weave 仅支持文档中列出的 Schema 类型。** 不存在的类型会被静默跳过，导致节点丢失。
+
+```
+# 错误 ❌ — 不存在的 Schema 类型
+node a : literal.ActorClass /Game/BP/MyActor @ (0, 0)      # literal 不存在
+node b : call.Array.Get @ (200, 0)                          # 不存在，数组取值用 special.GetArrayItem
+node c : cast.BP_Enemy_C @ (400, 0)                         # cast 不是有效前缀
+
+# 正确 ✅ — 使用标准 Schema
+set getAllActors.ActorClass = class:/Game/BP/MyActor         # 类引脚用 set 设置
+node b : special.GetArrayItem @ (200, 0)                     # 数组取值专用节点
+node c : special.Cast./Game/BP/BP_Enemy.BP_Enemy_C @ (400, 0)  # Cast 完整路径
+```
+
+### 错误 10：事件节点当作 Self 引用使用
+
+**事件节点只有 `then` 和事件参数输出引脚，没有 `self` 引脚。** 获取自身引用必须使用 `special.Self`。
+
+```
+# 错误 ❌ — 事件没有 self 引脚
+node begin : event.Actor.ReceiveBeginPlay @ (0, 0)
+link begin.self -> getLoc.self          # 失败！begin 没有 self 输出
+
+# 正确 ✅ — 使用 special.Self 节点
+node begin : event.Actor.ReceiveBeginPlay @ (0, 0)
+node self : special.Self @ (100, 100)
+link self.self -> getLoc.self           # Self 节点提供自身引用
+```
+
+### 错误 11：向 VariableGet 传入数据
+
+**VariableGet 是纯节点，只有数据输出引脚（=变量名），不接受数据输入。** 唯一的可选输入是跨蓝图时的 `self` 引脚。
+
+```
+# 错误 ❌ — 试图向 VariableGet 写入数据
+node setHP : VariableSet.BP_Test_C.HP @ (300, 0)
+node getHP : VariableGet.BP_Test_C.HP @ (500, 0)
+link setHP.Output_Get -> getHP.HP       # 失败！HP 是 getHP 的输出引脚
+
+# 正确 ✅ — 直接使用 VariableSet 的 Output_Get 或声明新的 VariableGet
+link setHP.Output_Get -> print.InFloat  # 用 Output_Get 直接获取刚设置的值
+# 或
+node getHP : VariableGet.BP_Test_C.HP @ (500, 100)
+link getHP.HP -> print.InFloat          # 独立读取，无需从 Set 传入
+```
+
+### 错误 12：`special.Self` 输出引脚大小写错误
+
+**`special.Self` 的输出引脚名是小写 `self`，不是大写 `Self`。**
+
+```
+# 错误 ❌ — 大写 Self
+node selfNode : special.Self @ (100, 100)
+link selfNode.Self -> getLoc.self          # Self 大写，连线失败！
+
+# 正确 ✅ — 小写 self
+node selfNode : special.Self @ (100, 100)
+link selfNode.self -> getLoc.self          # 小写 self
+```
+
+### 错误 13：向量/旋转值使用字符串而非简写语法
+
+**向量和旋转值必须使用 `vec()` / `rot()` 简写语法，不能用逗号分隔的字符串。**
+
+```
+# 错误 ❌ — 字符串格式不会被解析为结构体
+set node.Location = "100, 200, 300"
+set node.Rotation = "0, 90, 0"
+
+# 正确 ✅ — 使用 Weave 简写语法
+set node.Location = vec(100, 200, 300)
+set node.Rotation = rot(0, 90, 0)
+```
+
+### 错误 14：用 `var` 声明组件引用
+
+**UE 中组件（SplineComponent、StaticMeshComponent 等）是通过蓝图编辑器 AddComponent 添加的，不是通过 `var` 声明的变量。** Weave 的 `var` 用于声明蓝图变量，不用于组件。
+
+```
+# 错误 ❌ — 组件不是变量
+var SplineComp : USplineComponent
+
+# 正确 ✅ — 通过 GetComponentByClass 获取组件引用
+node getSpline : call.Actor.GetComponentByClass @ (500, 100)
+set getSpline.ComponentClass = class:USplineComponent
+link selfNode.self -> getSpline.self
+link getSpline.ReturnValue -> splineFunc.self
+```
+
+### 错误 15：多图表时函数定义顺序（原错误 9）
 
 ```
 # 错误 ❌ — 先调用后定义，编译时找不到函数

@@ -37,7 +37,8 @@ namespace
 				Ch == TEXT('(') || Ch == TEXT(')') ||
 				Ch == TEXT('.') || Ch == TEXT('=') ||
 				Ch == TEXT(':') || Ch == TEXT(',') ||
-				Ch == TEXT('@') || Ch == TEXT('#'))
+				Ch == TEXT('@') || Ch == TEXT('#') ||
+				Ch == TEXT('[') || Ch == TEXT(']'))
 			{
 				return true;
 			}
@@ -313,6 +314,29 @@ bool FWeaveGenerator::Generate(const TArray<UEdGraphNode*>& SelectedNodes, UEdGr
 								SafeDefault = FString::Printf(TEXT("\"%s\""), *SafeDefault.Replace(TEXT("\""), TEXT("\\\"")));
 							}
 							VarLine += FString::Printf(TEXT(" = %s"), *SafeDefault);
+						}
+						// 数组默认值: 从 CDO 读取
+						else if (VarDesc.VarType.ContainerType == EPinContainerType::Array && VarBlueprint->GeneratedClass)
+						{
+							UObject* CDO = VarBlueprint->GeneratedClass->GetDefaultObject();
+							FArrayProperty* ArrayProp = CDO ? CastField<FArrayProperty>(
+								VarBlueprint->GeneratedClass->FindPropertyByName(VarDesc.VarName)) : nullptr;
+							if (CDO && ArrayProp)
+							{
+								FScriptArrayHelper ArrayHelper(ArrayProp, ArrayProp->ContainerPtrToValuePtr<void>(CDO));
+								if (ArrayHelper.Num() > 0)
+								{
+									VarLine += TEXT(" = [");
+									for (int32 ArrIdx = 0; ArrIdx < ArrayHelper.Num(); ArrIdx++)
+									{
+										if (ArrIdx > 0) VarLine += TEXT(", ");
+										FString ElemStr;
+										ArrayProp->Inner->ExportTextItem_Direct(ElemStr, ArrayHelper.GetRawPtr(ArrIdx), nullptr, nullptr, 0);
+										VarLine += ElemStr;
+									}
+									VarLine += TEXT("]");
+								}
+							}
 						}
 
 						// Instance Editable (CPF_Edit + 没有 CPF_DisableEditOnInstance)
