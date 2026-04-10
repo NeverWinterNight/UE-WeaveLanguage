@@ -7,7 +7,7 @@ A graph layout language optimized for AI, currently used in Blueprint AI.
 Blueprints have a lot of functionality, but escaping is`K2Node`text, right`LLM`It's quite a burden.  
 `Weave语言`It's people and`LLM`All can read and write blueprints.
 
-本插件旨在打通 LLM 与 蓝图之间的交互壁垒，制作 AI 与 蓝图 交互的中间件，未来将会逐步支持材质图表，动画图表，Control Rig 图表等，希望广大开发者可以一起共同开发。
+This plug-in aims to open up the interaction barriers between LLM and Blueprint, and create middleware for the interaction between AI and Blueprint. In the future, it will gradually support material charts, animation charts, Control Rig charts, etc. We hope that developers can work together to develop it.
 
 ### characteristic
 
@@ -117,7 +117,7 @@ Applies a Diff to the Weave code, returning the complete modified Weave.
 
 parameter:
 
--   OriginalWeave: 原始 Weave 代码
+-   OriginalWeave: Original Weave code
 -   DiffCode: AI generated Diff
 -   OutError: error message, empty when successful
 
@@ -206,7 +206,7 @@ parameter:
 -   BlueprintPath: blueprint path
 -   Query: variable name keyword
 
-Returns: list of matching variables.
+Returns: list of matched variables.
 
 * * *
 
@@ -221,7 +221,7 @@ parameter:
 -   BlueprintPath: blueprint path
 -   Query: variable name keyword
 
-Returns: list of matching variables.
+Returns: list of matched variables.
 
 * * *
 
@@ -234,7 +234,7 @@ Search for functions available in the current context.
 parameter:
 
 -   BlueprintPath: blueprint path
--   Query: function name keyword
+-   Query: Function name keyword
 
 Returns: list of matching functions.
 
@@ -301,7 +301,7 @@ parameter:
 -   VarName: variable name
 -   OutError: error message
 
-返回：true 表示成功。
+Return: true indicates success.
 
 * * *
 
