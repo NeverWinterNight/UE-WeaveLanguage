@@ -206,7 +206,7 @@ parameter:
 -   BlueprintPath: blueprint path
 -   Query: variable name keyword
 
-Returns: list of matched variables.
+Returns: list of matching variables.
 
 * * *
 
@@ -221,7 +221,7 @@ parameter:
 -   BlueprintPath: blueprint path
 -   Query: variable name keyword
 
-Returns: list of matched variables.
+Returns: list of matching variables.
 
 * * *
 
