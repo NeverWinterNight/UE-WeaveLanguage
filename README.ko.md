@@ -34,7 +34,7 @@
 | 키워드        | 사용                              |
 | ---------- | ------------------------------- |
 | `graphset` | 청사진 리소스를 선언합니다. 이 청사진은 어디에 있나요? |
-| `graph`    | 특정 그래프가 무엇인지 이벤트 그래프/함수를 선언합니다. |
+| `graph`    | 声明事件图/函数，具体图表是哪个                |
 | `node`     | 노드 선언                           |
 | `link`     | 노드 엔드포인트 연결                     |
 | `set`      | 노드 속성 값 설정                      |
@@ -272,7 +272,7 @@ TArray GetAssetReferences(AssetPath, MaxResults = 20)
 
 ## 변수 조작
 
-### 변수 수정
+### 修改变量
 
 bool ModifyVar(BlueprintPath, VarName, NewValue, OutError)
 
