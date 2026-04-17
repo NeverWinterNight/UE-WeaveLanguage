@@ -206,7 +206,7 @@ TArray SearchBlueprintVariables(BlueprintPath, Query)
 -   BlueprintPath: ブループリント パス
 -   クエリ: 変数名キーワード
 
-戻り値: 一致した変数のリスト。
+戻り値: 一致する変数のリスト。
 
 * * *
 
@@ -221,7 +221,7 @@ TArray SearchContextVar(BlueprintPath, Query)
 -   BlueprintPath: ブループリント パス
 -   クエリ: 変数名キーワード
 
-戻り値: 一致した変数のリスト。
+戻り値: 一致する変数のリスト。
 
 * * *
 
