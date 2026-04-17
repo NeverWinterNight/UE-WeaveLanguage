@@ -2159,6 +2159,12 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 				NewNode->NodePosY = NodeDecl.Position.Y;
 				// 不清空引脚默认值——保留 WorldContextObject、枚举默认值等隐式值
 				// 后续 set 语句会覆盖需要修改的引脚，link 会重建连接
+				// 对 CallFunction 节点重建引脚以恢复隐藏引脚状态（如静态函数的 self 引脚）
+				// 同时修复历史 Apply（旧版 BreakAllNodeLinks 误伤隐藏引脚）造成的损坏
+				if (NewNode->IsA<UK2Node_CallFunction>())
+				{
+					NewNode->ReconstructNode();
+				}
 				CreatedNodes.Add(NodeDecl.NodeId, NewNode);
 				NodesCreated++;
 				UE_LOG(LogTemp, Log, TEXT("[Weaver] Reused existing node: %s (%s)"),
