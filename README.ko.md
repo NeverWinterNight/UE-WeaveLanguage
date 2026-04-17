@@ -7,7 +7,7 @@
 블루프린트에는 많은 기능이 있지만 이스케이프는`K2Node`텍스트, 오른쪽`LLM`꽤 부담스럽네요.  
 `Weave语言`그것은 사람과`LLM`모두가 청사진을 읽고 쓸 수 있습니다.
 
-이 플러그인은 LLM과 Blueprint 간의 상호 작용 장벽을 열고 AI와 Blueprint 간의 상호 작용을 위한 미들웨어를 만드는 것을 목표로 합니다. 앞으로는 재료 차트, 애니메이션 차트, Control Rig 차트 등을 점차적으로 지원할 예정입니다. 개발자가 함께 협력하여 개발할 수 있기를 바랍니다.
+이 플러그인의 목표는 LLM과 Blueprint 간의 상호 작용 장벽을 열고 AI와 Blueprint 간의 상호 작용을 위한 미들웨어를 만드는 것입니다. 앞으로는 재료 차트, 애니메이션 차트, Control Rig 차트 등을 점차적으로 지원할 예정입니다. 개발자가 함께 협력하여 개발할 수 있기를 바랍니다.
 
 ### 특성
 
@@ -97,7 +97,7 @@ set f.InString = Print 4
 
 FString GetBlueprintWeave(BlueprintPath, GraphName, EntryNode = TEXT(""))
 
-把蓝图转成 Weave 语言。
+청사진을 Weave 언어로 변환합니다.
 
 매개변수:
 
@@ -206,7 +206,7 @@ Blueprint에서 변수를 검색합니다.
 -   BlueprintPath: 청사진 경로
 -   쿼리: 변수 이름 키워드
 
-반환: 일치하는 변수 목록.
+반환값: 일치하는 변수 목록.
 
 * * *
 
@@ -221,7 +221,7 @@ TArray SearchContextVar(BlueprintPath, 쿼리)
 -   BlueprintPath: 청사진 경로
 -   쿼리: 변수 이름 키워드
 
-반환: 일치하는 변수 목록.
+반환값: 일치하는 변수 목록.
 
 * * *
 
