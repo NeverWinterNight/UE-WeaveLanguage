@@ -263,8 +263,8 @@ TArray GetAssetReferences(AssetPath, MaxResults = 20)
 
 パラメータ:
 
--   AssetPath: リソースパス
--   MaxResults: 戻り値の最大数、デフォルトは 20
+-   AssetPath: 资源路径
+-   MaxResults: 最大返回数量，默认 20
 
 戻り値: このリソースを参照する他のリソースのリスト。
 
@@ -349,7 +349,7 @@ JSON 経由でノードを追加します。
 
 ### ノードの削除
 
-bool 削除ノード(ID)
+bool RemoveNode(Id)
 
 指定したノードを削除します。
 
@@ -375,7 +375,7 @@ TArray GetAllNodesAsJson()
 
 void ClearNodes()
 
-現在のノードをすべてクリアします。
+清空当前所有节点。
 
 * * *
 
