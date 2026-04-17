@@ -2,6 +2,7 @@
 #include "Core/WeaveGenerator.h"
 #include "Core/WeaveInterpreter.h"
 #include "EdGraph/EdGraphNode.h"
+#include "EdGraphNode_Comment.h"
 #include "K2Node.h"
 #include "K2Node_Event.h"
 #include "K2Node_CallFunction.h"
@@ -2581,27 +2582,94 @@ bool UWeaveOperator::ApplyWeaveToBlueprintWithUndo(const FString& WeaveCode, con
 	}
 	else
 	{
-		// 单图表模式（原有逻辑）
+		// 单图表模式
 		const FScopedTransaction Transaction(FText::FromString(TEXT("Apply Weave Code")));
 		TargetGraph->Modify();
 		BP->Modify();
 
-		TArray<UEdGraphNode*> NodesToRemove;
-		for (UEdGraphNode* Node : TargetGraph->Nodes)
+		// 尝试加载增量映射
+		TMap<FString, UK2Node*> ExistingWeaveNodes;
+		FWeaveInterpreter::LoadWeaveNodeMap(TargetGraph, ExistingWeaveNodes);
+
+		if (ExistingWeaveNodes.Num() > 0)
 		{
-			if (Node && !Node->IsA<UK2Node_FunctionEntry>())
+			// === 增量模式 ===
+			// 1. 收集新 AST 中所有节点 ID
+			TSet<FString> NewNodeIds;
+			for (const FWeaveNodeDecl& Decl : AST.Nodes)
+				NewNodeIds.Add(Decl.NodeId);
+
+			// 2. 删除不再需要的旧节点
+			TArray<FString> RemovedIds;
+			for (auto& KV : ExistingWeaveNodes)
 			{
-				Node->BreakAllNodeLinks();
-				NodesToRemove.Add(Node);
+				if (!NewNodeIds.Contains(KV.Key) && KV.Value)
+				{
+					KV.Value->BreakAllNodeLinks();
+					TargetGraph->Nodes.Remove(KV.Value);
+					KV.Value->DestroyNode();
+					RemovedIds.Add(KV.Key);
+				}
 			}
-		}
+			for (const FString& Id : RemovedIds)
+				ExistingWeaveNodes.Remove(Id);
 
-		for (UEdGraphNode* Node : NodesToRemove)
+			// 3. 删除旧注释节点（非映射节点，将全部重建）
+			TArray<UEdGraphNode*> OldComments;
+			for (UEdGraphNode* Node : TargetGraph->Nodes)
+			{
+				if (auto* Comment = Cast<UEdGraphNode_Comment>(Node))
+				{
+					if (!Comment->NodeComment.StartsWith(TEXT("__WEAVE_NODE_MAP__")))
+						OldComments.Add(Comment);
+				}
+			}
+			for (UEdGraphNode* C : OldComments)
+			{
+				TargetGraph->Nodes.Remove(C);
+				C->DestroyNode();
+			}
+
+			// 4. 断开保留节点的可见引脚链接（保留隐藏引脚如静态函数的内部self连接）
+			for (auto& KV : ExistingWeaveNodes)
+			{
+				if (KV.Value)
+				{
+					for (UEdGraphPin* Pin : KV.Value->Pins)
+					{
+						if (!Pin->bHidden)
+						{
+							Pin->BreakAllPinLinks();
+						}
+					}
+				}
+			}
+
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] Incremental mode: %d existing, %d in new AST, %d removed"),
+				ExistingWeaveNodes.Num(), NewNodeIds.Num(), RemovedIds.Num());
+
+			NodesCreated = FWeaveInterpreter::GenerateBlueprint(AST, TargetGraph, OutError, &ExistingWeaveNodes);
+		}
+		else
 		{
-			TargetGraph->Nodes.Remove(Node);
-		}
+			// === 首次全量模式（无映射表，当前行为） ===
+			TArray<UEdGraphNode*> NodesToRemove;
+			for (UEdGraphNode* Node : TargetGraph->Nodes)
+			{
+				if (Node && !Node->IsA<UK2Node_FunctionEntry>())
+				{
+					Node->BreakAllNodeLinks();
+					NodesToRemove.Add(Node);
+				}
+			}
 
-		NodesCreated = FWeaveInterpreter::GenerateBlueprint(AST, TargetGraph, OutError);
+			for (UEdGraphNode* Node : NodesToRemove)
+			{
+				TargetGraph->Nodes.Remove(Node);
+			}
+
+			NodesCreated = FWeaveInterpreter::GenerateBlueprint(AST, TargetGraph, OutError);
+		}
 	}
 
 

@@ -100,8 +100,13 @@ public:
 	static bool Parse(const FString& WeaveCode, FWeaveAST& OutAST, FString& OutError);
 
 
-	static int32 GenerateBlueprint(const FWeaveAST& AST, class UEdGraph* Graph, FString& OutError);
+	static int32 GenerateBlueprint(const FWeaveAST& AST, class UEdGraph* Graph, FString& OutError,
+		const TMap<FString, UK2Node*>* ExistingNodes = nullptr);
 	static int32 GenerateMultiGraph(const FWeaveAST& AST, class UBlueprint* Blueprint, FString& OutError);
+
+	// 增量更新辅助：保存/加载 WeaveNodeId → NodeGuid 映射
+	static void SaveWeaveNodeMap(class UEdGraph* Graph, const TMap<FString, UK2Node*>& CreatedNodes);
+	static void LoadWeaveNodeMap(class UEdGraph* Graph, TMap<FString, UK2Node*>& OutMap);
 
 private:
 	static TArray<FString> Tokenize(const FString& Code);

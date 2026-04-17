@@ -1682,7 +1682,8 @@ static void ApplyArrayDefaults(UBlueprint* Blueprint, const TArray<FWeaveVarDecl
 	}
 }
 
-int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph, FString& OutError)
+int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph, FString& OutError,
+	const TMap<FString, UK2Node*>* ExistingNodes)
 {
 	if (!Graph)
 	{
@@ -2083,6 +2084,21 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 			if (RawSchema.StartsWith(TEXT("customEvent.")))
 			{
+				// 增量模式：尝试复用已有 CustomEvent 节点
+				if (ExistingNodes)
+				{
+					UK2Node* const* ExistingPtr = ExistingNodes->Find(NodeDecl.NodeId);
+					if (ExistingPtr && *ExistingPtr)
+					{
+						(*ExistingPtr)->NodePosX = NodeDecl.Position.X;
+						(*ExistingPtr)->NodePosY = NodeDecl.Position.Y;
+						CreatedNodes.Add(NodeDecl.NodeId, *ExistingPtr);
+						NodesCreated++;
+						UE_LOG(LogTemp, Log, TEXT("[Weaver] Reused existing CustomEvent: %s"), *NodeDecl.NodeId);
+						continue;
+					}
+				}
+
 				TArray<FString> CEParts;
 				RawSchema.ParseIntoArray(CEParts, TEXT("."));
 				if (CEParts.Num() >= 2)
@@ -2132,6 +2148,24 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 
 		UK2Node* NewNode = nullptr;
 
+		// 增量模式：尝试复用已有节点
+		if (ExistingNodes)
+		{
+			UK2Node* const* ExistingPtr = ExistingNodes->Find(NodeDecl.NodeId);
+			if (ExistingPtr && *ExistingPtr)
+			{
+				NewNode = *ExistingPtr;
+				NewNode->NodePosX = NodeDecl.Position.X;
+				NewNode->NodePosY = NodeDecl.Position.Y;
+				// 不清空引脚默认值——保留 WorldContextObject、枚举默认值等隐式值
+				// 后续 set 语句会覆盖需要修改的引脚，link 会重建连接
+				CreatedNodes.Add(NodeDecl.NodeId, NewNode);
+				NodesCreated++;
+				UE_LOG(LogTemp, Log, TEXT("[Weaver] Reused existing node: %s (%s)"),
+					*NodeDecl.NodeId, *NodeDecl.SchemaId);
+				continue;
+			}
+		}
 
 		// 去掉 SchemaId 首尾引号（Generator 对含空格的 SchemaId 会用引号包裹）
 		FString SchemaId = NodeDecl.SchemaId;
@@ -3107,7 +3141,9 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			// 使用 Schema->TrySetDefaultValue 确保枚举等引脚值格式正确并通知节点
 			if (Schema)
 			{
-				bool bSetOK = Schema->TrySetDefaultValue(*Pin, UEValue);
+				FString OldValue = Pin->DefaultValue;
+				Schema->TrySetDefaultValue(*Pin, UEValue);
+				bool bSetOK = (Pin->DefaultValue != OldValue || Pin->DefaultValue == UEValue);
 				if (!bSetOK)
 				{
 					// 枚举引脚可能需要完整限定名 (如 ESpawnActorCollisionHandlingMethod::AlwaysSpawn)
@@ -3118,10 +3154,12 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 						if (PinEnum)
 						{
 							FString QualifiedValue = FString::Printf(TEXT("%s::%s"), *PinEnum->GetName(), *UEValue);
-							bSetOK = Schema->TrySetDefaultValue(*Pin, QualifiedValue);
-							if (bSetOK)
+							FString OldValue2 = Pin->DefaultValue;
+							Schema->TrySetDefaultValue(*Pin, QualifiedValue);
+							if (Pin->DefaultValue != OldValue2 || Pin->DefaultValue == QualifiedValue)
 							{
 								UE_LOG(LogTemp, Log, TEXT("[Weaver] Set (qualified enum): %s.%s = %s"), *Set.NodeId, *Set.PinName, *QualifiedValue);
+								bSetOK = true;
 							}
 						}
 					}
@@ -3647,6 +3685,38 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 		}
 	}
 
+	// 修复通配符引脚: 增量复用时 BreakAllNodeLinks 导致通配符丢失类型
+	// 对仍有通配符引脚的节点调用 ReconstructNode，重建引脚并恢复连接触发类型传播
+	{
+		int32 ReconstructCount = 0;
+		for (auto& KV : CreatedNodes)
+		{
+			UK2Node* Node = KV.Value;
+			if (!Node) continue;
+
+			bool bHasWildcard = false;
+			for (UEdGraphPin* Pin : Node->Pins)
+			{
+				if (Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Wildcard)
+				{
+					bHasWildcard = true;
+					break;
+				}
+			}
+
+			if (bHasWildcard)
+			{
+				Node->ReconstructNode();
+				ReconstructCount++;
+			}
+		}
+
+		if (ReconstructCount > 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] Reconstructed %d nodes with wildcard pins"), ReconstructCount);
+		}
+	}
+
 	// 手动推导未连接通配符引脚的类型
 	// 典型场景: Array_Add 的 TargetArray 已连接到 array:float，
 	// 此时 NewItem（未连接）仍是 wildcard，需要从 TargetArray 的元素类型推导
@@ -3841,6 +3911,45 @@ int32 FWeaveInterpreter::GenerateBlueprint(const FWeaveAST& AST, UEdGraph* Graph
 			UE_LOG(LogTemp, Warning, TEXT("[Weaver] Bubble failed: node not found (%s)"), *Bubble.NodeId);
 		}
 	}
+
+	// 清理孤儿节点：不在 CreatedNodes 中的 UK2Node 视为残留，直接删除
+	{
+		TSet<UEdGraphNode*> KnownNodes;
+		for (auto& KV : CreatedNodes)
+		{
+			if (KV.Value) KnownNodes.Add(KV.Value);
+		}
+
+		TArray<UEdGraphNode*> OrphanedNodes;
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (!Node) continue;
+			if (Node->IsA<UK2Node_FunctionEntry>()) continue;
+			if (auto* Comment = Cast<UEdGraphNode_Comment>(Node)) continue;
+			if (UK2Node* K2 = Cast<UK2Node>(Node))
+			{
+				if (!KnownNodes.Contains(K2))
+				{
+					OrphanedNodes.Add(K2);
+				}
+			}
+		}
+
+		for (UEdGraphNode* Orphan : OrphanedNodes)
+		{
+			Orphan->BreakAllNodeLinks();
+			Graph->Nodes.Remove(Orphan);
+			Orphan->DestroyNode();
+		}
+
+		if (OrphanedNodes.Num() > 0)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[Weaver] Cleaned up %d orphaned nodes"), OrphanedNodes.Num());
+		}
+	}
+
+	// 保存 WeaveNodeId → NodeGuid 映射（用于增量更新）
+	SaveWeaveNodeMap(Graph, CreatedNodes);
 
 	Graph->NotifyGraphChanged();
 
@@ -5356,6 +5465,108 @@ UK2Node* FWeaveInterpreter::CreateSelfNode(UEdGraph* Graph)
 }
 
 
+// ============================================================
+// 增量更新辅助：保存/加载 WeaveNodeId → NodeGuid 映射
+// ============================================================
 
+void FWeaveInterpreter::SaveWeaveNodeMap(UEdGraph* Graph, const TMap<FString, UK2Node*>& CreatedNodes)
+{
+	if (!Graph) return;
+
+	// 查找已有映射注释节点
+	UEdGraphNode_Comment* MapComment = nullptr;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (auto* Comment = Cast<UEdGraphNode_Comment>(Node))
+		{
+			if (Comment->NodeComment.StartsWith(TEXT("__WEAVE_NODE_MAP__")))
+			{
+				MapComment = Comment;
+				break;
+			}
+		}
+	}
+
+	// 不存在则创建
+	if (!MapComment)
+	{
+		MapComment = NewObject<UEdGraphNode_Comment>(Graph, NAME_None, RF_Transactional);
+		Graph->AddNode(MapComment, false, false);
+		MapComment->CreateNewGuid();
+		MapComment->NodePosX = -99999;
+		MapComment->NodePosY = -99999;
+		MapComment->ResizeNode(FVector2D(1, 1));
+		MapComment->CommentColor = FLinearColor(0, 0, 0, 0);
+	}
+
+	// 序列化映射表
+	FString MapStr = TEXT("__WEAVE_NODE_MAP__\n");
+	for (const auto& KV : CreatedNodes)
+	{
+		if (KV.Value)
+		{
+			MapStr += FString::Printf(TEXT("%s|%s\n"), *KV.Key, *KV.Value->NodeGuid.ToString());
+		}
+	}
+	MapComment->NodeComment = MapStr;
+
+	UE_LOG(LogTemp, Log, TEXT("[Weaver] Saved WeaveNodeMap: %d entries"), CreatedNodes.Num());
+}
+
+void FWeaveInterpreter::LoadWeaveNodeMap(UEdGraph* Graph, TMap<FString, UK2Node*>& OutMap)
+{
+	if (!Graph) return;
+
+	// 查找映射注释节点
+	UEdGraphNode_Comment* MapComment = nullptr;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (auto* Comment = Cast<UEdGraphNode_Comment>(Node))
+		{
+			if (Comment->NodeComment.StartsWith(TEXT("__WEAVE_NODE_MAP__")))
+			{
+				MapComment = Comment;
+				break;
+			}
+		}
+	}
+	if (!MapComment) return;
+
+	// 建立 GUID → UK2Node* 索引
+	TMap<FGuid, UK2Node*> GuidToNode;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (UK2Node* K2 = Cast<UK2Node>(Node))
+		{
+			GuidToNode.Add(Node->NodeGuid, K2);
+		}
+	}
+
+	// 解析映射
+	TArray<FString> Lines;
+	MapComment->NodeComment.ParseIntoArrayLines(Lines);
+	for (int32 i = 1; i < Lines.Num(); i++)
+	{
+		FString Line = Lines[i].TrimStartAndEnd();
+		if (Line.IsEmpty()) continue;
+
+		int32 PipePos;
+		if (Line.FindChar(TEXT('|'), PipePos))
+		{
+			FString NodeId = Line.Left(PipePos);
+			FString GuidStr = Line.Mid(PipePos + 1);
+			FGuid Guid;
+			if (FGuid::Parse(GuidStr, Guid))
+			{
+				if (UK2Node** NodePtr = GuidToNode.Find(Guid))
+				{
+					OutMap.Add(NodeId, *NodePtr);
+				}
+			}
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[Weaver] Loaded WeaveNodeMap: %d entries matched"), OutMap.Num());
+}
 
 
